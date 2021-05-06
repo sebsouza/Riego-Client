@@ -149,7 +149,7 @@ class MultiButton {
   private:
     static const int DEBOUNCE_DELAY    =  20; // ms
     static const int SINGLECLICK_DELAY = 250; // ms
-    static const int LONGCLICK_DELAY   = 500; // ms
+    static const int LONGCLICK_DELAY   = 500; // ms long click
 
     /**
      * Note:
