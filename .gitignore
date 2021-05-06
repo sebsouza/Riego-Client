@@ -1,6 +1,12 @@
+.DS_Store
+
 include/credentials.h
-lib
 test
 .pio
 .vscode
-.DS_Store
+lib/*
+!/lib/arduino-multi-button-master
+/lib/arduino-multi-button-master/*
+!/lib/arduino-multi-button-master/src
+/lib/arduino-multi-button-master/src/*
+!/lib/arduino-multi-button-master/src/MultiButton.h
