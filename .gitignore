@@ -1,1 +1,6 @@
 include/credentials.h
+lib
+test
+.pio
+.vscode
+.DS_Store
