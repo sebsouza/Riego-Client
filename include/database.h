@@ -1,6 +1,5 @@
 #include "global.h"
 
-// void setState();
 void setWarningAlarms();
 
 void databaseConfig()
@@ -16,30 +15,66 @@ void databaseConfig()
 
     Serial.println("Connecting to Firebase");
 
-    while (Firebase.authTokenInfo().status != token_status_ready)
+    int retries = WIFI_CONN_MAX_RETRIES;
+    while (Firebase.authTokenInfo().status != token_status_ready && retries-- > 0)
     {
         Serial.print(".");
-        delay(50);
+        delay(500);
     }
-
-    Serial.println();
-    Serial.print("Connected with UID: ");
-    Serial.println(auth.token.uid.c_str());
     Serial.println();
 
-    path = basePath + auth.token.uid.c_str();
+    if (retries > 0)
+        databaseConnected = true;
+    else
+        databaseConnected = false;
 
-    systemConfigPath = path + "/config/system";
-    scheduleConfigPath = path + "/config/schedule";
-    zoneConfigPath = path + "/config/zone";
-    valveSetPath = path + "/valveSet/valveState";
-    endTimesPath = path + "/endTimesLog/";
-    measuresPath = path + "/measures/";
-    waterStateLogPath = path + "/waterState/";
-    warningsLogPath = path + "/warnings/";
+    if (databaseConnected)
+    {
+        Serial.print("Connected with UID: ");
+        Serial.println(auth.token.uid.c_str());
+        Serial.println();
 
-    Serial.println("Firebase Config Finished.");
-    Serial.println();
+        path = basePath + auth.token.uid.c_str();
+
+        systemConfigPath = path + "/config/system";
+        scheduleConfigPath = path + "/config/schedule";
+        zoneConfigPath = path + "/config/zone";
+        valveSetPath = path + "/valveSet/valveState";
+        endTimesPath = path + "/endTimesLog/";
+        measuresPath = path + "/measures/";
+        waterStateLogPath = path + "/waterState/";
+        warningsLogPath = path + "/warnings/";
+
+        Serial.println("Firebase Config Finished.");
+        Serial.println();
+    }
+    else
+    {
+        Serial.println("Firebase NOT Config !");
+        Serial.println();
+    }
+}
+
+void reconnectDatabase()
+{
+     long currentMillis = millis();
+        if (currentMillis - previousMillisDatabaseReconnect > intervalDatabseReconnect)
+        { // Try to reconnect.
+          previousMillisDatabaseReconnect = currentMillis;
+
+          Serial.println("Trying to reconnect Database...");
+          TelnetPrint.print("Trying to reconnect Database at ");
+          TelnetPrint.println(UnixTimestamp);
+
+          databaseConfig();
+          
+          if (databaseConnected)
+          {
+            Serial.println("Database Connected");
+            TelnetPrint.print("Database Connected at ");
+            TelnetPrint.println(UnixTimestamp);
+          }
+        }
 }
 
 void setWarningAlarms()
@@ -81,9 +116,9 @@ void setMeasures()
             Serial.println("------------------------------------");
 
             Serial.println("");
-            Serial.print("Free Heap: ");
-            Serial.println(ESP.getFreeHeap());
-            Serial.println("");
+            // Serial.print("Free Heap: ");
+            // Serial.println(ESP.getFreeHeap());
+            // Serial.println("");
 
             Serial.print("Soil is ");
             Serial.print((state.soilState == 0   ? "DRY"
@@ -99,6 +134,20 @@ void setMeasures()
             Serial.print("; Estimated Temperature: ");
             Serial.println(estimatedTemperature);
             Serial.println("");
+
+            TelnetPrint.print("Soil is ");
+            TelnetPrint.print((state.soilState == 0   ? "DRY"
+                               : state.soilState == 1 ? "WET"
+                               : state.soilState == 2 ? "VERY WET"
+                                                      : "UNKNOWN"));
+            TelnetPrint.print(": RH = ");
+            TelnetPrint.print(soilMoisture);
+            TelnetPrint.print(" %; Estimated Sensor Output Value = ");
+            TelnetPrint.println(estimatedSoilSensorValue);
+            TelnetPrint.print("Measured Temperature: ");
+            TelnetPrint.print(measuredTemperature);
+            TelnetPrint.print("; Estimated Temperature: ");
+            TelnetPrint.println(estimatedTemperature);
 
             String content;
             DynamicJsonDocument doc(256);

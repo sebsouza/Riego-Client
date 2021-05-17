@@ -12,6 +12,7 @@
 #include <ShiftRegister74HC595.h>
 #include <jled.h>
 #include <PinButton.h>
+#include <TelnetPrint.h>
 
 #include "credentials.h"
 #include "helpers.h"
@@ -137,36 +138,40 @@ void loop()
   button.update();
   ledSequence.Update();
 
-  if (adminEnabled)
+  if (boardMode == 'C')
   {
     server.handleClient();
     if (adminTimeOutCounter > ADMIN_TIMEOUT || button.isLongClick())
     {
-      adminEnabled = false;
-      Serial.println("Admin Mode disabled!");
+      boardMode = 'N';
+      Serial.println("Normal operation mode set.");
+      
       JLed(LED_PIN).Off().Update();
       clientInit();
     }
   }
   else
   {
+    checkTankLevel();
     getMeasures();
-    if (WiFi.status() == WL_CONNECTED)
+    if (WiFiConnected)
     {
       handleMqtt();
       getNTP();
-      setMeasures();
+      if (databaseConnected)
+        setMeasures();
+      else
+        reconnectDatabase();
     }
-    checkTankLevel();
     event = getNewEvent();
-    if (event != 0 && event != 1 && event != 2)
-    {
-      Serial.println("season: " + (String)season);
-      Serial.println("soilState: " + (String)state.soilState);
-      Serial.println("waterState: " + (String)state.waterState);
-      Serial.println("event: " + (String)event);
-    }
     state_table[season][state.soilState][state.waterState][event]();
+    // if (event != 0 && event != 1 && event != 2)
+    // {
+    //   Serial.println("season: " + (String)season);
+    //   Serial.println("soilState: " + (String)state.soilState);
+    //   Serial.println("waterState: " + (String)state.waterState);
+    //   Serial.println("event: " + (String)event);
+    // }
   }
   customWatchdog = millis();
 }
@@ -242,17 +247,11 @@ defEvent getNewEvent()
   {
     e = ALARM_1;
     alarm1State = false;
-
-    // Serial.print("Alarm 1 @ ");
-    // digitalClockDisplay();
   }
   else if (alarm2State)
   {
     e = ALARM_2;
     alarm2State = false;
-
-    // Serial.print("Alarm 2 @ ");
-    // digitalClockDisplay();
   }
   else
   {
@@ -272,7 +271,7 @@ void getMeasures() // Read sensors timer
       if (error.sensorNotAnswering)
       {
         error.sensorNotAnswering = LOW;
-        if (WiFi.status() == WL_CONNECTED)
+        if (databaseConnected)
           setWarningAlarms();
       }
       readSensor();
@@ -282,7 +281,7 @@ void getMeasures() // Read sensors timer
       if (!error.sensorNotAnswering)
       {
         error.sensorNotAnswering = HIGH;
-        if (WiFi.status() == WL_CONNECTED)
+        if (databaseConnected)
           setWarningAlarms();
       }
     }
@@ -305,39 +304,27 @@ void readSensor()
       if (soilMoisture >= systemConfig.wetLimit)
       { // Soil is Very Wet
         state.soilState = VERY_WET;
-
-        // Serial.print("Soil is Very Wet: RH = ");
-        // Serial.println(soilMoisture);
-        // Serial.println("");
       }
       else if (soilMoisture >= systemConfig.dryLimit)
       { // Soil is Wet
         state.soilState = WET;
-
-        // Serial.print("Soil is Wet: RH = ");
-        // Serial.println(soilMoisture);
-        // Serial.println("");
       }
       else
       { // Soil is Dry
         state.soilState = DRY;
-
-        // Serial.print("Soil is Dry: RH = ");
-        // Serial.println(soilMoisture);
-        // Serial.println("");
       }
 
       if (error.sensorOutOfRange)
       {
         error.sensorOutOfRange = LOW;
-        if (WiFi.status() == WL_CONNECTED)
+        if (databaseConnected)
           setWarningAlarms();
       }
     }
     else
     {
       error.sensorOutOfRange = HIGH;
-      if (WiFi.status() == WL_CONNECTED)
+      if (databaseConnected)
         setWarningAlarms();
     }
   }
@@ -348,10 +335,10 @@ float filterCapSensorData()
   float _measuredCapSensorData = 0, _estimatedCapSensorData = 0;
   for (int i = 0; i < 200; i++)
   {
-      _measuredCapSensorData = soilSensor.touchRead(0);
-      _estimatedCapSensorData = soilMoistureKF.updateEstimate(_measuredCapSensorData);
-      delay(20);
-   }
+    _measuredCapSensorData = soilSensor.touchRead(0);
+    _estimatedCapSensorData = soilMoistureKF.updateEstimate(_measuredCapSensorData);
+    delay(20);
+  }
   soilMoisture = (100.0 * (_estimatedCapSensorData - systemConfig.airValue)) / (systemConfig.waterValue - systemConfig.airValue);
   Serial.print("Estimated Soil Sensor Data: ");
   Serial.println(_estimatedCapSensorData);
@@ -360,20 +347,20 @@ float filterCapSensorData()
 
 float filterTempSensorData()
 {
-  float _measuredTempSensorData=0, _estimatedTempSensorData=0;
+  float _measuredTempSensorData = 0, _estimatedTempSensorData = 0;
   for (int i = 0; i < 200; i++)
   {
-      _measuredTempSensorData = soilSensor.getTemp();
-      _estimatedTempSensorData = temperatureKF.updateEstimate(_measuredTempSensorData);
-      delay(20);
+    _measuredTempSensorData = soilSensor.getTemp();
+    _estimatedTempSensorData = temperatureKF.updateEstimate(_measuredTempSensorData);
+    delay(20);
   }
-  estimatedTemperature=_estimatedTempSensorData;
+  estimatedTemperature = _estimatedTempSensorData;
   Serial.print("Estimated Temperaure Sensor Data: ");
   Serial.println(_estimatedTempSensorData);
   return _estimatedTempSensorData;
 }
 
-// Output 
+// Output
 void doNothing()
 {
 }
@@ -476,8 +463,10 @@ void waterAuto()
   }
   setRelays(outputValues);
   writeConfig();
-  if (WiFi.status() == WL_CONNECTED)
+  if (databaseConnected)
     setWaterStateLog();
+  TelnetPrint.print("Water Auto at ");
+  TelnetPrint.println(UnixTimestamp);
 }
 
 void waterSingleZone()
@@ -522,8 +511,10 @@ void waterSingleZone()
     led[1] = JLed(LED_PIN).On().DelayAfter(1000);
   }
   // writeConfig();
-  if (WiFi.status() == WL_CONNECTED)
+  if (databaseConnected)
     setWaterStateLog();
+  TelnetPrint.print("Water Single Zone at ");
+  TelnetPrint.println(UnixTimestamp);
 }
 
 void waterManual()
@@ -608,8 +599,10 @@ void waterManual()
   }
   setRelays(outputValues);
   writeConfig();
-  if (WiFi.status() == WL_CONNECTED)
+  if (databaseConnected)
     setWaterStateLog();
+  TelnetPrint.print("Water Manual at ");
+  TelnetPrint.println(UnixTimestamp);
 }
 
 void waterNextZone()
@@ -653,8 +646,10 @@ void waterNextZone()
 
             setRelays(outputValues);
             // writeConfig();
-            if (WiFi.status() == WL_CONNECTED)
+            if (databaseConnected)
               setWaterStateLog();
+            TelnetPrint.print("Water Next Zone at ");
+            TelnetPrint.println(UnixTimestamp);
 
             led[0] = JLed(LED_PIN).Blink(100, 200).Repeat(j + 1);
             led[1] = JLed(LED_PIN).Off().DelayAfter(1000);
@@ -682,8 +677,13 @@ void stopWater()
   }
   uint8_t outputValues[] = {B00000000};
   setRelays(outputValues);
-  if (WiFi.status() == WL_CONNECTED)
+
+  writeConfig();
+  if (databaseConnected)
     setWaterStateLog();
+
+  TelnetPrint.print("Stop Water at ");
+  TelnetPrint.println(UnixTimestamp);
 
   led[0] = JLed(LED_PIN).On().DelayAfter(1000);
   led[1] = JLed(LED_PIN).On().DelayAfter(1000);
@@ -697,8 +697,6 @@ void waterTank()
     {
       uint8_t outputValues[] = {B00000000};
       waterTankTimestamp = UnixTimestamp;
-      // waterTankTime[0] = DateTime.hour;
-      // waterTankTime[1] = DateTime.minute;
 
       outputValues[0] = 1 | 1 << 7;
       setRelays(outputValues);
@@ -709,8 +707,10 @@ void waterTank()
       prevState = state.waterState;
       state.waterState = TANK_WATER;
       // writeConfig();
-      if (WiFi.status() == WL_CONNECTED)
+      if (databaseConnected)
         setWaterStateLog();
+      TelnetPrint.print("Water Tank at ");
+      TelnetPrint.println(UnixTimestamp);
 
       Serial.println("--------------------");
       Serial.println("Water Tank Start...");
@@ -728,6 +728,12 @@ void stopWaterTank()
       stopWater();
     else if (prevState == AUTO_WATER || prevState == MANUAL_WATER) //VERRR
     {
+      unsigned long waterTankDuration;
+      waterTankDuration = UnixTimestamp - waterTankTimestamp;
+
+      Serial.print("Water Tank Duration: ");
+      Serial.println(waterTankDuration);
+
       state.waterState = prevState;
       for (int i = state.currentTurn; i < MAX_ZONE_NUMBER; i++)
       {
@@ -735,15 +741,7 @@ void stopWaterTank()
         {
           if (zoneConfig.zone[j].waterOrder == i)
           {
-
-            // byte _prevEndTime[] = {zoneConfig.zone[j].waterEndHour, zoneConfig.zone[j].waterEndMinute};
-            // byte remainingTime[2];
-            // byte actualTime[] = {DateTime.hour, DateTime.minute};
-            // byte _endTime[2];
-            // subtractTime(_prevEndTime, waterTankTime, remainingTime);
-
-            unsigned long remainingTime = state.endTimestamp[j] - waterTankTimestamp;
-
+            state.endTimestamp[j] = state.endTimestamp[j] + waterTankDuration;
             if (state.currentTurn == i)
             {
               outputValues[0] = 1 << (j + 1) | 1 << 7; // Turn current turn zone ON
@@ -751,17 +749,7 @@ void stopWaterTank()
 
               led[0] = JLed(LED_PIN).Blink(100, 200).Repeat(j + 1);
               led[1] = JLed(LED_PIN).Off().DelayAfter(1000);
-
-              state.endTimestamp[j] = UnixTimestamp + remainingTime;
             }
-            else
-            {
-              state.endTimestamp[j] = state.endTimestamp[j] + remainingTime;
-            }
-
-            // addTime(actualTime, remainingTime, _endTime);
-            // zoneConfig.zone[j].waterEndHour = _endTime[0];
-            // zoneConfig.zone[j].waterEndMinute = _endTime[1];
             if (i == MAX_ZONE_NUMBER - 1) // Last Turn
               state.currentWaterEndTimestamp = state.endTimestamp[j];
 
@@ -773,24 +761,33 @@ void stopWaterTank()
           }
         }
       }
+      if (databaseConnected)
+        setWaterStateLog();
+
+      TelnetPrint.print("Continue Water at ");
+      TelnetPrint.println(UnixTimestamp);
     }
     else if (prevState == SINGLE_WATER) //VERRRR
     {
       stopWater();
     }
-    if (alarm1HoldState)
-    {
-      alarm1HoldState = false;
-      alarm1State = true;
-    }
-    else if (alarm2HoldState)
+
+    if (alarm2HoldState)
     {
       alarm2HoldState = false;
       alarm2State = true;
     }
-    writeConfig();
-    if (WiFi.status() == WL_CONNECTED)
-      setWaterStateLog();
+    else if (alarm1HoldState)
+    {
+      alarm1HoldState = false;
+      alarm1State = true;
+
+      TelnetPrint.print("alarm1State at ");
+      TelnetPrint.println(UnixTimestamp);
+    }
+
+    TelnetPrint.print("Tank Full at ");
+    TelnetPrint.println(UnixTimestamp);
   }
 }
 
@@ -844,46 +841,55 @@ void alarm2Hold()
 
 void adminInit()
 {
-  if (!adminEnabled)
+  if (boardMode == 'N')
   {
-    adminEnabled = true;
+    boardMode = 'C';
     adminTimeOutCounter = 0;
     WiFi.mode(WIFI_OFF);
 
-    Serial.println("Admin Mode Enabled!");
+    Serial.println("Config Mode Enabled!");
     Serial.print("Setting soft-AP ... ");
     WiFi.mode(WIFI_AP);
     Serial.println(WiFi.softAP(ACCESS_POINT_NAME, ACCESS_POINT_PASSWORD) ? "Ready" : "Failed!");
 
-    server.on("/", []() {
-      Serial.println("admin.html");
-      server.send(200, "text/html", PAGE_AdminMainPage);
-    });
-    server.on("/admin.html", []() {
-      Serial.println("admin.html");
-      server.send(200, "text/html", PAGE_AdminMainPage);
-    });
+    server.on("/", []()
+              {
+                Serial.println("admin.html");
+                server.send(200, "text/html", PAGE_AdminMainPage);
+              });
+    server.on("/admin.html", []()
+              {
+                Serial.println("admin.html");
+                server.send(200, "text/html", PAGE_AdminMainPage);
+              });
     server.on("/config.html", send_network_configuration_html);
-    server.on("/info.html", []() {
-      Serial.println("info.html");
-      server.send(200, "text/html", PAGE_Information);
-    });
+    server.on("/info.html", []()
+              {
+                Serial.println("info.html");
+                server.send(200, "text/html", PAGE_Information);
+              });
     server.on("/ntp.html", send_NTP_configuration_html);
-    server.on("/style.css", []() {
-      Serial.println("style.css");
-      server.send(200, "text/css", PAGE_Style_css);
-    });
-    server.on("/microajax.js", []() {
-      Serial.println("microajax.js");
-      server.send(200, "text/plain", PAGE_microajax_js);
-    });
+    server.on("/style.css", []()
+              {
+                Serial.println("style.css");
+                server.send(200, "text/css", PAGE_Style_css);
+              });
+    server.on("/microajax.js", []()
+              {
+                Serial.println("microajax.js");
+                server.send(200, "text/plain", PAGE_microajax_js);
+              });
     server.on("/admin/values", send_network_configuration_values_html);
     server.on("/admin/connectionstate", send_connection_state_values_html);
     server.on("/admin/infovalues", send_information_values_html);
     server.on("/admin/ntpvalues", send_NTP_configuration_values_html);
     server.on("/admin/clientinit", send_client_init_html);
 
-    server.onNotFound([]() { Serial.println("Page Not Found"); server.send ( 400, "text/html", "Page not Found" ); });
+    server.onNotFound([]()
+                      {
+                        Serial.println("Page Not Found");
+                        server.send(400, "text/html", "Page not Found");
+                      });
     server.begin();
     Serial.println("HTTP server started");
 
@@ -892,7 +898,7 @@ void adminInit()
   }
   else
   {
-    adminEnabled = false;
+    boardMode = 'N';
     led[0] = JLed(LED_PIN).On().DelayAfter(2000);
     led[1] = JLed(LED_PIN).On().DelayAfter(2000);
   }

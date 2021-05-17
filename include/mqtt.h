@@ -7,6 +7,13 @@ void mqttConfig()
     lastReconnectAttempt = 0;
     outChannelName = outPrefix + auth.token.uid.c_str();
     inChannelName = inPrefix + auth.token.uid.c_str();
+    if (client.connected())
+    {
+        mqttConnected = true;
+
+        TelnetPrint.print("MQTT Connected at ");
+        TelnetPrint.println(UnixTimestamp);
+    }
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
@@ -79,27 +86,40 @@ void callback(char *topic, byte *payload, unsigned int length)
     }
 }
 
-boolean reconnect()
-{
-    if (client.connect(clientID))
-    {
-        client.subscribe(inChannelName.c_str()); // Subscribe.
-    }
-    return client.connected();
-}
+// boolean reconnect()
+// {
+//     if (client.connect(clientID))
+//     {
+//         client.subscribe(inChannelName.c_str()); // Subscribe.
+//     }
+//     return client.connected();
+// }
 void handleMqtt()
 {
-    if (!client.connected())
+    mqttConnected = client.connected();
+
+    if (!mqttConnected)
     {
         long now = millis();
         if (now - lastReconnectAttempt > 5000)
         { // Try to reconnect.
-            Serial.println("Trying to reconnect MQTT...");
             lastReconnectAttempt = now;
-            if (reconnect())
+
+            Serial.println("Trying to reconnect MQTT...");
+            TelnetPrint.print("Trying to reconnect MQTT at ");
+            TelnetPrint.println(UnixTimestamp);
+
+            client.disconnect();
+            mqttConnected = client.connect(clientID);
+
+            if (mqttConnected)
             { // Attempt to reconnect.
                 lastReconnectAttempt = 0;
+                client.subscribe(inChannelName.c_str()); // Subscribe.
+
                 Serial.println("MQTT Connected");
+                TelnetPrint.print("MQTT Connected at ");
+                TelnetPrint.println(UnixTimestamp);
             }
         }
     }

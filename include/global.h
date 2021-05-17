@@ -5,6 +5,8 @@
 #define ACCESS_POINT_PASSWORD "12345678"
 #define ADMIN_TIMEOUT 180 // Defines the Time in Seconds, when the Admin-Mode will be diabled
 
+#define WIFI_CONN_MAX_RETRIES 20
+
 #define AIR_VALUE 200
 #define WATER_VALUE 2000
 
@@ -42,6 +44,9 @@ unsigned long previousMillisCheckTankLevel = 0;	 // Time of last point added
 unsigned long intervalWifiReconnect = 30000;
 unsigned long previousMillisWifiReconnect = 0;
 
+unsigned long intervalDatabseReconnect = 5000;
+unsigned long previousMillisDatabaseReconnect = 0;
+
 unsigned long waterTankTimestamp;
 bool tankLevel = true,
 	 prevTankLevel = true;
@@ -52,6 +57,10 @@ float measuredSoilSensorValue, estimatedSoilSensorValue;
 float soilMoisture = 0;
 float measuredTemperature, estimatedTemperature;
 
+// int bootTimes;
+char boardMode = 'N'; // Normal operation or Configuration mode?
+bool WiFiConnected = false;
+
 WebServer server(80);			 // The Webserver
 boolean firstStart = true;		 // On firststart = true, NTP will try to get a valid time
 int adminTimeOutCounter = 0;	 // Counter for Disabling the AdminMode
@@ -59,12 +68,14 @@ strDateTime DateTime;			 // Global DateTime structure, will be refreshed every S
 WiFiUDP UDPNTPClient;			 // NTP Client
 unsigned long UnixTimestamp = 0; // GLOBALTIME  ( Will be set by NTP)
 // unsigned long timestamp = 0;
-int cNTP_Update = 0;		  // Counter for Updating the time via NTP
-Ticker tkSecond;			  // Second - Timer for Updating Datetime Structure
-boolean adminEnabled = false; // Enable Admin Mode for a given Time
-byte minuteOld = 100;		  // Helpvariable for checking, when a new Minute comes up (for Auto Turn On / Off)
+int cNTP_Update = 0; // Counter for Updating the time via NTP
+Ticker tkSecond;	 // Second - Timer for Updating Datetime Structure
+// boolean adminEnabled = false; // Enable Admin Mode for a given Time
+byte minuteOld = 100; // Helpvariable for checking, when a new Minute comes up (for Auto Turn On / Off)
 byte dayOld = 100;
 long customWatchdog;
+
+bool databaseConnected = false;
 
 FirebaseData fbdo1;
 FirebaseAuth auth;
@@ -98,6 +109,7 @@ String inPrefix = "in-";
 String outPrefix = "out-";
 WiFiClient MQTTclient;
 PubSubClient client(MQTTclient);
+bool mqttConnected = false;
 
 bool otaFlag = false;
 
@@ -202,8 +214,8 @@ struct strZone
 	byte waterOrder;
 	byte waterCapacity; // mm/h
 	byte waterQ;		// mm Set Point
-	byte waterQMax; // mm
-	// String name;
+	byte waterQMax;		// mm
+						// String name;
 };
 
 // address 1552
@@ -268,19 +280,19 @@ void (*const state_table[MAX_SEASONS][MAX_SOIL_STATES][MAX_STATES][MAX_EVENTS])(
 	 },
 	 {
 		 /* procedures for WET soil */
-		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	/* procedures for OFF */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		/* procedures for SINGLE_WATER */
+		 {doNothing, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 },
 	 {
 		 /* procedures for VERY_WET soil */
-		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {},																						 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},  /* procedures for OFF */
+		 {},																					   /* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
+		 {doNothing, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 }},
 	{/* procedures for AUTUMN */
 	 {
@@ -289,73 +301,73 @@ void (*const state_table[MAX_SEASONS][MAX_SOIL_STATES][MAX_STATES][MAX_EVENTS])(
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for AUTO_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, doNothing, stopWaterTank, stopWaterTank}   /* procedures for TANK_WATER */
+		 {doNothing, alarm1Hold, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank}	   /* procedures for TANK_WATER */
 	 },
 	 {
 		 /* procedures for WET soil */
-		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	/* procedures for OFF */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		/* procedures for SINGLE_WATER */
+		 {doNothing, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 },
 	 {
 		 /* procedures for VERY_WET soil */
-		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {},																						 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},  /* procedures for OFF */
+		 {},																					   /* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
+		 {doNothing, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 }},
 	{/* procedures for WINTER */
 	 {
 		 /* procedures for DRY soil */
-		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	/* procedures for OFF */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		/* procedures for SINGLE_WATER */
+		 {doNothing, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 },
 	 {
 		 /* procedures for WET soil */
-		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {},																						 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},  /* procedures for OFF */
+		 {},																					   /* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
+		 {doNothing, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 },
 	 {
 		 /* procedures for VERY_WET soil */
-		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {},																						 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},  /* procedures for OFF */
+		 {},																					   /* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
+		 {doNothing, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 }},
 	{/* procedures for SPRING */
 	 {
 		 /* procedures for DRY soil */
-		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	/* procedures for OFF */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	/* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		/* procedures for SINGLE_WATER */
+		 {doNothing, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 },
 	 {
 		 /* procedures for WET soil */
-		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},  /* procedures for OFF */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
+		 {doNothing, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 },
 	 {
 		 /* procedures for VERY_WET soil */
-		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-		 {},																						 /* procedures for AUTO_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-		 {doNothing, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
+		 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},  /* procedures for OFF */
+		 {},																					   /* procedures for AUTO_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
+		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
+		 {doNothing, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
 	 }}};
 
 void writeConfig()
@@ -416,7 +428,7 @@ void writeConfig()
 		EEPROM.write(408 + i * 64, zoneConfig.zone[i].waterCapacity);
 		EEPROM.write(409 + i * 64, zoneConfig.zone[i].waterQ);
 		// WriteStringToEEPROM(410 + i * 64, zoneConfig.zone[i].name);
-		EEPROM.write(442+i*64,zoneConfig.zone[i].waterQMax);
+		EEPROM.write(442 + i * 64, zoneConfig.zone[i].waterQMax);
 	}
 
 	// State (912)
@@ -523,17 +535,32 @@ boolean readConfig()
 
 void WiFiInit()
 {
-	unsigned long WiFiConnectionStart = millis();
-	while (WiFi.status() != WL_CONNECTED && millis() - WiFiConnectionStart < 30000)
+	// unsigned long WiFiConnectionStart = millis();
+
+	int retries = WIFI_CONN_MAX_RETRIES;
+	while (WiFi.status() != WL_CONNECTED && retries-- > 0)
 	{
+		delay(500);
 		Serial.print(".");
-		delay(300);
 	}
-	if (WiFi.status() == WL_CONNECTED)
+	Serial.println("");
+
+	if (retries > 0)
+		WiFiConnected = true;
+	else
+		WiFiConnected = false;
+
+	if (WiFiConnected)
 	{
-		Serial.println("WiFi Init");
-		UDPNTPClient.begin(2390); // Port for NTP receive
+		//TelnetPrint = NetServer(2323); // uncomment to change port
+		TelnetPrint.begin();
+		Serial.println("Telnet started");
 		blink();
+
+		UDPNTPClient.begin(2390); // Port for NTP receive
+		Serial.println("WiFi Init");
+		blink();
+
 		databaseConfig();
 		blink();
 		mqttConfig();
@@ -559,8 +586,8 @@ void WiFiInit()
 	{
 		Serial.println("WiFi Not Connected!");
 
-		led[0] = JLed(LED_PIN).Blink(150, 150).Repeat(4);
-		led[1] = JLed(LED_PIN).Blink(1000, 4000).Repeat(4);
+		led[0] = JLed(LED_PIN).Blink(150, 150).Repeat(2);
+		led[1] = JLed(LED_PIN).Blink(1000, 1000).Repeat(2);
 	}
 }
 
@@ -574,29 +601,34 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
 	case SYSTEM_EVENT_STA_GOT_IP:
 		Serial.print("WiFi connected! IP address: ");
 		Serial.println(WiFi.localIP());
-		// WiFiInit();
+
+		WiFiConnected = true;
+
 		break;
 	case SYSTEM_EVENT_STA_DISCONNECTED:
 		Serial.println("Disconnected from WiFi access point");
 		Serial.print("WiFi lost connection. Reason: ");
 		Serial.println(info.disconnected.reason);
-		if (info.disconnected.reason == 201)
-		{
-			unsigned long currentMillisWiFiReconnect = millis();
-			if (currentMillisWiFiReconnect - previousMillisWifiReconnect > intervalWifiReconnect)
-			{
-				previousMillisWifiReconnect = currentMillisWiFiReconnect;
-				WiFi.mode(WIFI_OFF);
-				Serial.println("Trying to Reconnect");
-				WiFi.mode(WIFI_STA);
-				WiFi.begin(networkConfig.ssid.c_str(), networkConfig.password.c_str());
-			}
-		}
-		else if (info.disconnected.reason == 15)
-		{
-			adminInit();
-		}
-		break;
+
+		WiFiConnected = false;
+
+		// if (info.disconnected.reason == 201) 
+		// {
+		// 	unsigned long currentMillisWiFiReconnect = millis();
+		// 	if (currentMillisWiFiReconnect - previousMillisWifiReconnect > intervalWifiReconnect)
+		// 	{
+		// 		previousMillisWifiReconnect = currentMillisWiFiReconnect;
+		// 		Serial.println("Trying to Reconnect");
+		// 		WiFi.mode(WIFI_OFF);
+		// 		WiFi.mode(WIFI_STA);
+		// 		WiFi.begin(networkConfig.ssid.c_str(), networkConfig.password.c_str());
+		// 	}
+		// }
+		// else if (info.disconnected.reason == 15)
+		// {
+		// 	adminInit();
+		// }
+		// break;
 	default:
 		break;
 	}
@@ -667,14 +699,17 @@ const int NTP_PACKET_SIZE = 48;
 byte packetBuffer[NTP_PACKET_SIZE];
 void NTPRefresh()
 {
-
-	if (WiFi.status() == WL_CONNECTED)
+	if (WiFiConnected)
 	{
 		IPAddress timeServerIP;
 		WiFi.hostByName(networkConfig.ntpServerName.c_str(), timeServerIP);
 		//sendNTPpacket(timeServerIP); // send an NTP packet to a time server
 
 		Serial.println("sending NTP packet...");
+
+		// TelnetPrint.print("Sending NTP packet at ");
+		// TelnetPrint.println(UnixTimestamp);
+
 		memset(packetBuffer, 0, NTP_PACKET_SIZE);
 		packetBuffer[0] = 0b11100011; // LI, Version, Mode
 		packetBuffer[1] = 0;		  // Stratum, or type of clock
@@ -695,12 +730,19 @@ void NTPRefresh()
 		{
 			Serial.println("NTP no packet yet");
 			Serial.println();
+
+			TelnetPrint.print("NTP no packet yet at ");
+			TelnetPrint.println(UnixTimestamp);
 		}
 		else
 		{
 			Serial.print("NTP packet received, length=");
 			Serial.println(cb);
 			Serial.println();
+
+			TelnetPrint.print("NTP packet received at ");
+			TelnetPrint.println(UnixTimestamp);
+
 			UDPNTPClient.read(packetBuffer, NTP_PACKET_SIZE); // read the packet into the buffer
 			unsigned long highWord = word(packetBuffer[40], packetBuffer[41]);
 			unsigned long lowWord = word(packetBuffer[42], packetBuffer[43]);
@@ -708,7 +750,6 @@ void NTPRefresh()
 			const unsigned long seventyYears = 2208988800UL;
 			unsigned long epoch = secsSince1900 - seventyYears;
 			UnixTimestamp = epoch;
-			// timestamp = UnixTimestamp + (networkConfig.timezone * 360);
 
 			getDateTime();
 			checkSeason();
@@ -718,9 +759,13 @@ void NTPRefresh()
 				setWaterStateLog();
 				setWarningAlarms();
 				firstStart = false;
+				TelnetPrint.print("First Start at ");
+				TelnetPrint.println(UnixTimestamp);
 			}
 		}
 	}
+	// TelnetPrint.print("NTP refreshed at ");
+	// TelnetPrint.println(UnixTimestamp);
 }
 
 void getNTP()
@@ -752,8 +797,9 @@ void Second_Tick()
 	if (millis() - customWatchdog > 60000)
 	{
 		Serial.println("CustomWatchdog bites. Bye");
-		ESP.restart();
-		// customWatchdog = millis();
+		TelnetPrint.print("!!!!!!!!!! CustomWatchdog bites at ");
+		TelnetPrint.println(UnixTimestamp);
+		// ESP.restart();
 	}
 }
 
