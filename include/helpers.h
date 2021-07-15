@@ -10,6 +10,7 @@ void databaseConfig();
 void setCmd();
 void setMeasures();
 void setWaterStateLog();
+void setWaterAutoInit();
 void setEndTimes();
 void setWarningAlarms();
 void setAirValue();
@@ -27,6 +28,10 @@ float filterCapSensorData();
 float filterTempSensorData();
 void readSensor();
 void getMeasures();
+
+// Controller
+void getWaterControlK();
+unsigned int getWaterTime(int j);
 
 // Water System
 void doNothing();
@@ -299,6 +304,5 @@ void printDigits(int digits)
 		Serial.print('0');
 	Serial.print(digits);
 }
-
 
 #endif

@@ -33,7 +33,7 @@ void callback(char *topic, byte *payload, unsigned int length)
         pub["from"] = "client";
         switch (cmd)
         {
-        case getState:
+        case getState: // 0
             pub["cmd"] = "setState";
             setWaterStateLog();
             break;
@@ -49,17 +49,27 @@ void callback(char *topic, byte *payload, unsigned int length)
             getZoneConfig();
             pub["cmd"] = "akgZoneConfig";
             break;
-        case saveAirValue:
+        case saveAirValue: // 4
             systemConfig.airValue = filterCapSensorData() - 1.5;
             writeConfig();
             setAirValue();
             pub["cmd"] = "akgSaveAirValue";
+            
+            Serial.print("Air Value set to: ");
+            Serial.println(systemConfig.airValue);
+            TelnetPrint.print("Air Value set to: ");
+            TelnetPrint.println(systemConfig.airValue);
             break;
         case saveWaterValue:
             systemConfig.waterValue = systemConfig.airValue + (100.0 / (float)systemConfig.wetLimit) * (filterCapSensorData() - systemConfig.airValue) + 1.5;
             writeConfig();
             setWaterValue();
             pub["cmd"] = "akgSaveWaterValue";
+
+            Serial.print("Water Value set to: ");
+            Serial.println(systemConfig.waterValue);
+            TelnetPrint.print("Water Value set to: ");
+            TelnetPrint.println(systemConfig.waterValue);
             break;
         case resetAirWaterValues:
             systemConfig.airValue = AIR_VALUE;
@@ -67,13 +77,22 @@ void callback(char *topic, byte *payload, unsigned int length)
             writeConfig();
             setAirValue();
             setWaterValue();
+
+            Serial.print("Air Value set to: ");
+            Serial.println(systemConfig.airValue);
+            TelnetPrint.print("Air Value set to: ");
+            TelnetPrint.println(systemConfig.airValue);
+            Serial.print("Water Value set to: ");
+            Serial.println(systemConfig.waterValue);
+            TelnetPrint.print("Water Value set to: ");
+            TelnetPrint.println(systemConfig.waterValue);
             pub["cmd"] = "akgAirWaterReset";
             break;
         case saveValveState:
             getValveState();
             pub["cmd"] = "akgSaveValveState";
             break;
-        case setAdminMode:
+        case setAdminMode: // 8
             adminInit();
             pub["cmd"] = "akgSetAdminMode";
             break;

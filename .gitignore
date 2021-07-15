@@ -5,8 +5,8 @@ test
 .pio
 .vscode
 lib/*
-!/lib/arduino-multi-button-master
-/lib/arduino-multi-button-master/*
-!/lib/arduino-multi-button-master/src
-/lib/arduino-multi-button-master/src/*
-!/lib/arduino-multi-button-master/src/MultiButton.h
+!/lib/arduino-multi-button
+/lib/arduino-multi-button/*
+!/lib/arduino-multi-button/src
+/lib/arduino-multi-button/src/*
+!/lib/arduino-multi-button/src/MultiButton.h
