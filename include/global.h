@@ -12,7 +12,7 @@
 
 #define MAX_ZONE_NUMBER 4
 
-constexpr auto MIN_WATERQ = 0.5; // mm/m2
+constexpr auto MIN_WATERQ = 1.0; // mm/m2
 
 constexpr auto BUTTON_PIN = 19;
 constexpr auto TANK_LEVEL_PIN = 18;
@@ -32,7 +32,8 @@ bool tankRequest = false,
 	 alarm2State = false,
 	 alarm1HoldState = false,
 	 alarm2HoldState = false,
-	 dbInit = false;
+	 dbInit = false,
+	 waterRequired = true;
 
 unsigned long intervalGetMeasures = 1000 * 60 * 1, // // Interval at which to read sensors: 1 minute
 	previousMillisGetMeasures = 0;

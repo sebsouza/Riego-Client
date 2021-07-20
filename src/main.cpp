@@ -129,9 +129,10 @@ void setup()
 */
   pinMode(TANK_LEVEL_PIN, INPUT_PULLUP);
 
-  for (int i = 0; i < MAX_ZONE_NUMBER; i++){ // PI controller reset
-    soilMoistureErrorIntegration[i]=0;
-    antiWindup[i]=0;
+  for (int i = 0; i < MAX_ZONE_NUMBER; i++)
+  { // PI controller reset
+    soilMoistureErrorIntegration[i] = 0;
+    antiWindup[i] = 0;
   }
 
   state.waterState = OFF;
@@ -169,7 +170,7 @@ void loop()
         reconnectDatabase();
     }
     event = getNewEvent();
-    state_table[season]/* [state.soilState] */[state.waterState][event]();
+    state_table[season] /* [state.soilState] */[state.waterState][event]();
   }
   customWatchdog = millis();
 }
@@ -186,12 +187,18 @@ void checkAlarms()
     {
       // Serial.println((String)DateTime.wday+" day is ON");
       // Serial.println((String)DateTime.hour+":"+(String)DateTime.minute);
-      if(state.currentWaterEndTimestamp!=state.currentWaterStartTimestamp)
-
-     { if (DateTime.hour == scheduleConfig.water1StartHour && DateTime.minute == scheduleConfig.water1StartMinute)
-        alarm1State = true;
-      if (DateTime.hour == scheduleConfig.water2StartHour && DateTime.minute == scheduleConfig.water2StartMinute)
-        alarm2State = true;}
+      if (DateTime.hour == scheduleConfig.water1StartHour && DateTime.minute == scheduleConfig.water1StartMinute)
+      {
+        if (waterRequired)
+          alarm1State = true;
+      }
+      else if (DateTime.hour == scheduleConfig.water2StartHour && DateTime.minute == scheduleConfig.water2StartMinute)
+      {
+        if (waterRequired)
+          alarm2State = true;
+      }
+      else
+        waterRequired = true;
     }
   }
 }
@@ -300,7 +307,7 @@ void readSensor()
     measuredTemperature = soilSensor.getTemp();
     estimatedTemperature = temperatureKF.updateEstimate(measuredTemperature);
 
-    if (soilMoisture <= 0)
+    if (soilMoisture < 0)
     {
       soilMoisture = 0;
       // state.soilState = DRY;
@@ -332,7 +339,7 @@ void readSensor()
     //       setWarningAlarms();
     //   }
     // }
-    else if (soilMoisture <= 100)
+    else if (soilMoisture < 100)
     {
       // state.soilState = VERY_WET;
       if (error.sensorOutOfRange)
@@ -399,20 +406,21 @@ float filterTempSensorData()
   return _estimatedTempSensorData;
 }
 
-void getWaterControlK(int j){
-float soilMoistureError = (float)zoneConfig.zone[j].waterQ - soilMoisture;
+void getWaterControlK(int j)
+{
+  float soilMoistureError = (float)zoneConfig.zone[j].waterQ - soilMoisture;
 
-Serial.print("Soil Moisture Error = ");
-Serial.println(soilMoistureError);
+  Serial.print("Soil Moisture Error = ");
+  Serial.println(soilMoistureError);
   float proportional = 2.36659243776405 * soilMoistureError;
   Serial.print("Proportional = ");
-Serial.println(proportional);
+  Serial.println(proportional);
   state.waterControl[j] = (proportional + soilMoistureErrorIntegration[j] /* + differential */);
   float integral = 0.941088625144914 * soilMoistureError + antiWindup[j];
-   Serial.print("Soil Moisture Error Integration = ");
-Serial.println(soilMoistureErrorIntegration[j]);
- Serial.print("Integral = ");
-Serial.println(integral);
+  Serial.print("Soil Moisture Error Integration = ");
+  Serial.println(soilMoistureErrorIntegration[j]);
+  Serial.print("Integral = ");
+  Serial.println(integral);
   soilMoistureErrorIntegration[j] = integral;
   // float differential = 0.831804750651293 * (soilMoistureError - soilMoistureLastError);
   // soilMoistureLastError = soilMoistureError;
@@ -428,9 +436,9 @@ Serial.println(integral);
   }
   else
     antiWindup[j] = 0;
-    
-    Serial.print("Water Control K = ");
-    Serial.println(state.waterControl[j]);
+
+  Serial.print("Water Control K = ");
+  Serial.println(state.waterControl[j]);
 }
 
 unsigned int getWaterTime(int j)
@@ -438,25 +446,25 @@ unsigned int getWaterTime(int j)
   unsigned int waterTime;
 
   Serial.print("waterQMax => ");
- Serial.print((float)zoneConfig.zone[j].waterQMax);
+  Serial.print((float)zoneConfig.zone[j].waterQMax);
   Serial.print(" - waterCapacity => ");
- Serial.print((float)zoneConfig.zone[j].waterCapacity);
-  
+  Serial.print((float)zoneConfig.zone[j].waterCapacity);
+
   // if (j == systemConfig.sensorZone)
-    waterTime = state.waterControl[j] * ((float)zoneConfig.zone[j].waterQMax / (float)zoneConfig.zone[j].waterCapacity) * 36.0;
+  waterTime = state.waterControl[j] * ((float)zoneConfig.zone[j].waterQMax / (float)zoneConfig.zone[j].waterCapacity) * 36.0;
   // else
   //   waterTime = ((float)zoneConfig.zone[j].waterQ / (float)systemConfig.dryLimit) * state.waterControl[j] * (zoneConfig.zone[j].waterQ / 100.0) * ((float)zoneConfig.zone[j].waterQMax / (float)zoneConfig.zone[j].waterCapacity) * 36.0;
 
-  if (waterTime < (MIN_WATERQ / (float)zoneConfig.zone[j].waterQMax) * 3600.0)
+  if (waterTime < (MIN_WATERQ / (float)zoneConfig.zone[j].waterCapacity) * 3600.0)
     waterTime = 0;
 
   Serial.print(" - Water Time Duration for Zone ");
- Serial.print(j);
- Serial.print(": ");
- Serial.print(waterTime);
- Serial.println(" s");
- Serial.println("-----------------------------------");
-// Serial.println("getWaterTime");
+  Serial.print(j + 1);
+  Serial.print(": ");
+  Serial.print(waterTime);
+  Serial.println(" s");
+  Serial.println("-----------------------------------");
+  // Serial.println("getWaterTime");
   return waterTime;
 }
 
@@ -468,6 +476,7 @@ void doNothing()
 void waterAuto()
 {
   state.waterState = AUTO_WATER;
+  readSensor();
   state.soilMoistInit = soilMoisture;
   state.currentTurn = 0;
 
@@ -482,11 +491,10 @@ void waterAuto()
   //                 : state.soilState == 2 ? "VERY WET"
   //                                        : "UNKNOWN"));
 
-Serial.print("Soil Moisture = ");
-Serial.println(soilMoisture);
-Serial.print("Soil Moisture SP = ");
-Serial.println(systemConfig.dryLimit);
-
+  Serial.print("Soil Moisture = ");
+  Serial.println(soilMoisture);
+  Serial.print("Soil Moisture SP = ");
+  Serial.println(systemConfig.dryLimit);
 
   for (int i = 0; i < MAX_ZONE_NUMBER; i++) // Turn
   {
@@ -512,7 +520,7 @@ Serial.println(systemConfig.dryLimit);
           // default:
           //   break;
           // }
-  getWaterControlK(j);
+          getWaterControlK(j);
           waterDurationS[j] = getWaterTime(j);
 
           if (state.currentTurn == i && waterDurationS[j] > 0)
@@ -529,7 +537,7 @@ Serial.println(systemConfig.dryLimit);
             state.currentWaterStartTimestamp = UnixTimestamp;
             state.endTimestamp[j] = state.currentWaterStartTimestamp + waterDurationS[j];
 
-            Serial.println("Water Start Timestamp: " + (String)state.currentWaterStartTimestamp);
+            Serial.println("===>>> Water Start Timestamp: " + (String)state.currentWaterStartTimestamp);
           }
           else // Not 1st Turn
           {
@@ -542,7 +550,7 @@ Serial.println(systemConfig.dryLimit);
           if (i == 0) // 1st Turn
           {
             state.currentWaterStartTimestamp = UnixTimestamp;
-            Serial.println("Water Start Timestamp: " + (String)state.currentWaterStartTimestamp);
+            Serial.println("===>>> Water Start Timestamp: " + (String)state.currentWaterStartTimestamp);
 
             state.endTimestamp[j] = UnixTimestamp;
           }
@@ -560,23 +568,31 @@ Serial.println(systemConfig.dryLimit);
         if (i == MAX_ZONE_NUMBER - 1) // Last Turn
         {
           state.currentWaterEndTimestamp = state.endTimestamp[j];
-          Serial.println("Water End Timestamp: " + (String)state.currentWaterEndTimestamp);
+          Serial.println("===>>> Water End Timestamp: " + (String)state.currentWaterEndTimestamp);
         }
         lastTurnZone = j;
       }
     }
   }
- if(state.currentWaterEndTimestamp!=state.currentWaterStartTimestamp)
- { setRelays(outputValues);
-  writeConfig();
-  if (databaseConnected)
+  if (state.currentWaterEndTimestamp != state.currentWaterStartTimestamp)
   {
-    setWaterStateLog();
-    setWaterAutoInit();
+    waterRequired = true;
+    setRelays(outputValues);
+    writeConfig();
+    if (databaseConnected)
+    {
+      setWaterStateLog();
+      setWaterAutoInit();
+    }
+    TelnetPrint.print("Water Auto at ");
+    TelnetPrint.println(UnixTimestamp);
   }
-  TelnetPrint.print("Water Auto at ");
-  TelnetPrint.println(UnixTimestamp);}
-  else state.waterState=OFF;
+  else
+  {
+    waterRequired = false;
+    state.waterState = OFF;
+    Serial.println("Water Auto skipped");
+  }
 }
 
 void waterSingleZone()
@@ -648,7 +664,7 @@ void waterManual()
       {
         // unsigned long _waterEndTime;
 
-        waterDuration[j] = ((float)zoneConfig.zone[j].waterQ/100.0)* ((float)zoneConfig.zone[j].waterQMax/ (float)zoneConfig.zone[j].waterCapacity) * 3600;
+        waterDuration[j] = ((float)zoneConfig.zone[j].waterQ / 100.0) * ((float)zoneConfig.zone[j].waterQMax / (float)zoneConfig.zone[j].waterCapacity) * 3600;
 
         // waterDuration[j][0] = waterDuration[j][1] / 60;
         // waterDuration[j][1] -= waterDuration[j][0] * 60;
