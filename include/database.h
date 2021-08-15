@@ -13,7 +13,7 @@ void databaseConfig()
     Firebase.reconnectWiFi(true);
     Firebase.setFloatDigits(2);
     Firebase.setDoubleDigits(6);
-    // fbdo1.setResponseSize(2048);
+    // fbdo1.setResponseSize(1024);
 
     Serial.println("Connecting to Firebase");
 
@@ -61,7 +61,7 @@ void databaseConfig()
 void reconnectDatabase()
 {
     long currentMillis = millis();
-    if (currentMillis - previousMillisDatabaseReconnect > intervalDatabseReconnect)
+    if (currentMillis - previousMillisDatabaseReconnect > intervalDatabaseReconnect)
     { // Try to reconnect.
         previousMillisDatabaseReconnect = currentMillis;
 
@@ -108,52 +108,60 @@ void setWarningAlarms()
 
 void setMeasures()
 {
-    if (!error.sensorNotAnswering && !error.sensorOutOfRange)
+    // if (!error.sensorNotAnswering/*  && !error.sensorOutOfRange */)
+    // {
+    unsigned long currentMillisSetMeasure = millis();
+    if (currentMillisSetMeasure - previousMillisSetMeasures > intervalSetMeasures)
     {
-        unsigned long currentMillisSetMeasure = millis();
-        if (currentMillisSetMeasure - previousMillisSetMeasures > intervalSetMeasures)
+        previousMillisSetMeasures = currentMillisSetMeasure;
+        Serial.println("------------------------------------");
+        Serial.println("Set Measures JSON...");
+        Serial.println("------------------------------------");
+
+        Serial.println("");
+        Serial.print("Measured Sensor Output Value = ");
+        Serial.print(measuredSoilSensorValue);
+        Serial.print(" / Estimated Sensor Output Value = ");
+        Serial.println(estimatedSoilSensorValue);
+
+        TelnetPrint.print("Measured Sensor Output Value = ");
+        TelnetPrint.print(measuredSoilSensorValue);
+        TelnetPrint.print(" / Estimated Sensor Output Value = ");
+        TelnetPrint.println(estimatedSoilSensorValue);
+
+        String content;
+        DynamicJsonDocument doc(256);
+        if (error.sensorNotAnswering)
         {
-            previousMillisSetMeasures = currentMillisSetMeasure;
-            Serial.println("------------------------------------");
-            Serial.println("Set Measures JSON...");
-            Serial.println("------------------------------------");
-
-            Serial.println("");
-            Serial.print("Measured Sensor Output Value = ");
-            Serial.print(measuredSoilSensorValue);
-            Serial.print(" / Estimated Sensor Output Value = ");
-            Serial.println(estimatedSoilSensorValue);
-
-            TelnetPrint.print("Measured Sensor Output Value = ");
-            TelnetPrint.print(measuredSoilSensorValue);
-            TelnetPrint.print(" / Estimated Sensor Output Value = ");
-            TelnetPrint.println(estimatedSoilSensorValue);
-
-            String content;
-            DynamicJsonDocument doc(256);
+            doc["fields"]["soilMoisture"]["doubleValue"] = -4;
+            doc["fields"]["estimatedTemperature"]["doubleValue"] = -4;
+        }
+        else
+        {
             doc["fields"]["soilMoisture"]["doubleValue"] = soilMoisture;
             doc["fields"]["estimatedTemperature"]["doubleValue"] = estimatedTemperature;
-            doc["fields"]["timestamp"]["integerValue"] = UnixTimestamp;
+        }
+        doc["fields"]["timestamp"]["integerValue"] = UnixTimestamp;
 
-            serializeJson(doc, content);
+        serializeJson(doc, content);
 
-            if (Firebase.Firestore.createDocument(&fbdo1, FIREBASE_PROJECT_ID, "" /* databaseId can be (default) or empty */, measuresPath.c_str(), content.c_str()))
-            {
-                Serial.println("Measures PASSED");
-                // Serial.println("------------------------------------");
-                // Serial.println(fbdo1.payload());
-                Serial.println("------------------------------------");
-                Serial.println();
-            }
-            else
-            {
-                Serial.println("FAILED");
-                Serial.println("REASON: " + fbdo1.errorReason());
-                Serial.println("------------------------------------");
-                Serial.println();
-            }
+        if (Firebase.Firestore.createDocument(&fbdo1, FIREBASE_PROJECT_ID, "" /* databaseId can be (default) or empty */, measuresPath.c_str(), content.c_str()))
+        {
+            Serial.println("Measures PASSED");
+            // Serial.println("------------------------------------");
+            // Serial.println(fbdo1.payload());
+            Serial.println("------------------------------------");
+            Serial.println();
+        }
+        else
+        {
+            Serial.println("FAILED");
+            Serial.println("REASON: " + fbdo1.errorReason());
+            Serial.println("------------------------------------");
+            Serial.println();
         }
     }
+    // }
 }
 
 void setWaterAutoInit()
@@ -175,7 +183,19 @@ void setWaterAutoInit()
 
     String content;
     DynamicJsonDocument doc(256);
-    doc["fields"]["soilMoistInit"]["doubleValue"] = state.soilMoistInit;
+    // if(error.sensorOutOfRange)
+    // doc["fields"]["soilMoistInit"]["doubleValue"] = -1;
+    // else
+    if (error.sensorNotAnswering)
+        doc["fields"]["soilMoistInit"]["doubleValue"] = -4;
+    else
+        doc["fields"]["soilMoistInit"]["doubleValue"] = state.soilMoistInit;
+        
+        for (int i = 0; i < MAX_ZONE_NUMBER; i++)
+        {
+            doc["fields"]["duration"]["mapValue"]["fields"]["zone" + (String)(i + 1)]["integerValue"] = state.waterDuration[i];
+        }
+        doc["fields"]["state"]["integerValue"] = state.waterState;
     doc["fields"]["timestamp"]["integerValue"] = UnixTimestamp;
 
     serializeJson(doc, content);
@@ -222,6 +242,7 @@ void setWaterStateLog()
         for (int i = 0; i < MAX_ZONE_NUMBER; i++)
         {
             doc["fields"]["endTimes"]["mapValue"]["fields"]["zone" + (String)(i + 1)]["integerValue"] = state.endTimestamp[i];
+            doc["fields"]["duration"]["mapValue"]["fields"]["zone" + (String)(i + 1)]["integerValue"] = state.waterDuration[i];
         }
         break;
     case MANUAL_WATER:
@@ -305,8 +326,8 @@ void setAirValue()
     doc["fields"]["sensorMode"]["booleanValue"] = bool(systemConfig.sensorMode);
     doc["fields"]["waterValue"]["integerValue"] = systemConfig.waterValue;
     doc["fields"]["airValue"]["integerValue"] = systemConfig.airValue;
-    doc["fields"]["dryLimit"]["integerValue"] = systemConfig.dryLimit;
-    doc["fields"]["wetLimit"]["integerValue"] = systemConfig.wetLimit;
+    // doc["fields"]["dryLimit"]["integerValue"] = systemConfig.dryLimit;
+    // doc["fields"]["wetLimit"]["integerValue"] = systemConfig.wetLimit;
 
     serializeJson(doc, content);
 
@@ -340,8 +361,8 @@ void setWaterValue()
     doc["fields"]["sensorMode"]["booleanValue"] = bool(systemConfig.sensorMode);
     doc["fields"]["waterValue"]["integerValue"] = systemConfig.waterValue;
     doc["fields"]["airValue"]["integerValue"] = systemConfig.airValue;
-    doc["fields"]["dryLimit"]["integerValue"] = systemConfig.dryLimit;
-    doc["fields"]["wetLimit"]["integerValue"] = systemConfig.wetLimit;
+    // doc["fields"]["dryLimit"]["integerValue"] = systemConfig.dryLimit;
+    // doc["fields"]["wetLimit"]["integerValue"] = systemConfig.wetLimit;
 
     serializeJson(doc, content);
 
@@ -415,8 +436,8 @@ void getSystemConfig()
         systemConfig.sensorMode = doc["fields"]["sensorMode"]["booleanValue"];
         systemConfig.waterValue = doc["fields"]["waterValue"]["integerValue"];
         systemConfig.airValue = doc["fields"]["airValue"]["integerValue"];
-        systemConfig.dryLimit = doc["fields"]["dryLimit"]["integerValue"];
-        systemConfig.wetLimit = doc["fields"]["wetLimit"]["integerValue"];
+        // systemConfig.dryLimit = doc["fields"]["dryLimit"]["integerValue"];
+        // systemConfig.wetLimit = doc["fields"]["wetLimit"]["integerValue"];
         systemConfig.sensorZone = doc["fields"]["sensorZone"]["integerValue"];
 
         writeConfig();

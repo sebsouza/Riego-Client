@@ -12,7 +12,7 @@
 
 #define MAX_ZONE_NUMBER 4
 
-constexpr auto MIN_WATERQ = 1.0; // mm/m2
+constexpr auto MIN_WATER_TIME = 3; // [min]
 
 constexpr auto BUTTON_PIN = 19;
 constexpr auto TANK_LEVEL_PIN = 18;
@@ -38,7 +38,7 @@ bool tankRequest = false,
 unsigned long intervalGetMeasures = 1000 * 60 * 1, // // Interval at which to read sensors: 1 minute
 	previousMillisGetMeasures = 0;
 
-unsigned long intervalSetMeasures = 1000 * 60 * 10; // Update history every 60 minutes
+unsigned long intervalSetMeasures = 1000 * 60 * 60; // Update history every 60 minutes
 unsigned long previousMillisSetMeasures = 0;
 
 unsigned long intervalCheckTankLevel = 1000 * 1; // Check Tank Level every 1 second
@@ -47,7 +47,7 @@ unsigned long previousMillisCheckTankLevel = 0;	 // Time of last point added
 unsigned long intervalWifiReconnect = 30000;
 unsigned long previousMillisWifiReconnect = 0;
 
-unsigned long intervalDatabseReconnect = 5000;
+unsigned long intervalDatabaseReconnect = 5000;
 unsigned long previousMillisDatabaseReconnect = 0;
 
 unsigned long waterTankTimestamp;
@@ -197,8 +197,8 @@ struct strSystemConfig
 {
 	long airValue;
 	long waterValue;
-	byte dryLimit;
-	byte wetLimit;
+	// byte dryLimit;
+	// byte wetLimit;
 	boolean sensorMode;
 	boolean autoMode;
 	byte sensorZone;
@@ -244,6 +244,7 @@ struct strState
 	unsigned long currentWaterEndTimestamp;
 	unsigned long endTimestamp[MAX_ZONE_NUMBER];
 	float waterControl[MAX_ZONE_NUMBER]; // 0...100 [%]
+	unsigned int waterDuration[MAX_ZONE_NUMBER];
 } state;
 
 struct strError
@@ -261,7 +262,7 @@ uint8_t valveState,
 *	MAX_ZONE_NUMBER: ... zone_MAX_ZONE_NUMBER
 */
 
-SimpleKalmanFilter soilMoistureKF(50, 50, 0.001);
+SimpleKalmanFilter soilMoistureKF(50, 50, 0.005);
 SimpleKalmanFilter temperatureKF(5, 5, 0.01);
 
 Adafruit_seesaw soilSensor;
@@ -279,109 +280,34 @@ PinButton button(BUTTON_PIN);
 
 void (*const state_table[MAX_SEASONS]/* [MAX_SOIL_STATES] */[MAX_STATES][MAX_EVENTS])(void) = {
 	{/* procedures for SUMMER */
-	//  {
-		 /* procedures for DRY soil */
 		 {checkAlarms, waterAuto, waterAuto, waterSingleZone, waterManual, adminInit, waterTank},	   /* procedures for OFF */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	   /* procedures for AUTO_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	   /* procedures for MANUAL_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		   /* procedures for SINGLE_WATER */
 		 {checkAlarms, alarm1Hold, alarm2Hold, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for WET soil */
-	// 	 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	  /* procedures for OFF */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		  /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for VERY_WET soil */
-	// 	 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-	// 	 {},																						 /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  }
-	 },
+	},
 	{/* procedures for AUTUMN */
-	//  {
-		 /* procedures for DRY soil */
 		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},  /* procedures for OFF */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for AUTO_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank}, /* procedures for MANUAL_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},	   /* procedures for SINGLE_WATER */
 		 {checkAlarms, alarm1Hold, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank}  /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for WET soil */
-	// 	 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	  /* procedures for OFF */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		  /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for VERY_WET soil */
-	// 	 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-	// 	 {},																						 /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  }
-	 },
+ },
 	{/* procedures for WINTER */
-	//  {
-		 /* procedures for DRY soil */
 		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	  /* procedures for OFF */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for AUTO_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for MANUAL_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		  /* procedures for SINGLE_WATER */
 		 {checkAlarms, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for WET soil */
-	// 	 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-	// 	 {},																						 /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for VERY_WET soil */
-	// 	 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-	// 	 {},																						 /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  }
-	 },
+		 },
 	{/* procedures for SPRING */
-	//  {
-		 /* procedures for DRY soil */
 		 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	  /* procedures for OFF */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for AUTO_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	  /* procedures for MANUAL_WATER */
 		 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		  /* procedures for SINGLE_WATER */
 		 {checkAlarms, alarm1Hold, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for WET soil */
-	// 	 {checkAlarms, waterAuto, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  },
-	//  {
-	// 	 /* procedures for VERY_WET soil */
-	// 	 {checkAlarms, doNothing, doNothing, waterSingleZone, waterManual, adminInit, waterTank},	 /* procedures for OFF */
-	// 	 {},																						 /* procedures for AUTO_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, waterNextZone, stopWater, waterTank},	 /* procedures for MANUAL_WATER */
-	// 	 {checkTimer, doNothing, doNothing, waterSingleZone, stopWater, stopWater, waterTank},		 /* procedures for SINGLE_WATER */
-	// 	 {checkAlarms, doNothing, doNothing, doNothing, stopWaterTank, stopWaterTank, stopWaterTank} /* procedures for TANK_WATER */
-	//  }
-	 }};
+		 }
+	};
 
 void writeConfig()
 {
@@ -415,8 +341,8 @@ void writeConfig()
 	// System Config (272)
 	EEPROMWritelong(272, systemConfig.airValue);
 	EEPROMWritelong(276, systemConfig.waterValue);
-	EEPROM.write(280, systemConfig.dryLimit);
-	EEPROM.write(281, systemConfig.wetLimit);
+	// EEPROM.write(280, systemConfig.dryLimit);
+	// EEPROM.write(281, systemConfig.wetLimit);
 	EEPROM.write(282, systemConfig.sensorMode);
 	EEPROM.write(283, systemConfig.autoMode);
 
@@ -495,8 +421,7 @@ boolean readConfig()
 		// System Config (272)
 		systemConfig.airValue = EEPROMReadlong(272);
 		systemConfig.waterValue = EEPROMReadlong(276);
-		systemConfig.dryLimit = EEPROM.read(280);
-		systemConfig.wetLimit = EEPROM.read(281);
+		// systemConfig.dryLimit = EEPROM.read(280);
 		systemConfig.sensorMode = EEPROM.read(282);
 		systemConfig.autoMode = EEPROM.read(283);
 
