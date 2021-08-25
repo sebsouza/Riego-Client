@@ -621,7 +621,7 @@ void waterManual()
   uint8_t outputValues[] = {B00000000};
   byte lastTurnZone = 0;
   // byte actualTime[] = {DateTime.hour, DateTime.minute};
-  unsigned long waterDuration[MAX_ZONE_NUMBER];
+  // unsigned long waterDuration[MAX_ZONE_NUMBER];
 
   for (int i = 0; i < MAX_ZONE_NUMBER; i++) // Turn
   {
@@ -631,7 +631,7 @@ void waterManual()
       {
         // unsigned long _waterEndTime;
 
-        waterDuration[j] = ((float)zoneConfig.zone[j].waterQ / 100.0) * zoneConfig.zone[j].waterQMax * 60;
+        state.waterDuration[j] = ((float)zoneConfig.zone[j].waterQ / 100.0) * zoneConfig.zone[j].waterQMax * 60;
 
         // waterDuration[j][0] = waterDuration[j][1] / 60;
         // waterDuration[j][1] -= waterDuration[j][0] * 60;
@@ -639,11 +639,11 @@ void waterManual()
         Serial.print("Water Duration Time for Zone ");
         Serial.print(j + 1);
         Serial.print(" set to: ");
-        Serial.print(waterDuration[j]);
+        Serial.print(state.waterDuration[j]);
         // printDigits(waterDuration[j][1]);
         Serial.println("");
 
-        if (state.currentTurn == i && (waterDuration[j] > 0))
+        if (state.currentTurn == i && (state.waterDuration[j] > 0))
         {
           state.currentZone = j;
           outputValues[0] = 1 << (j + 1) | 1 << 7; // Turn current turn zone ON
@@ -655,14 +655,14 @@ void waterManual()
         if (i == 0) // 1st Turn
         {
           state.currentWaterStartTimestamp = UnixTimestamp;
-          state.endTimestamp[j] = state.currentWaterStartTimestamp + waterDuration[j];
+          state.endTimestamp[j] = state.currentWaterStartTimestamp + state.waterDuration[j];
 
           Serial.println("Water Start Timestamp: " + (String)state.currentWaterStartTimestamp);
           // addTime(actualTime, waterDuration[j], _waterEndTime);
         }
         else // Not 1st Turn
         {
-          state.endTimestamp[j] = state.endTimestamp[lastTurnZone] + waterDuration[j];
+          state.endTimestamp[j] = state.endTimestamp[lastTurnZone] + state.waterDuration[j];
 
           // byte _endTime[] = {zoneConfig.zone[lastTurnZone].waterEndHour, zoneConfig.zone[lastTurnZone].waterEndMinute};
           // addTime(_endTime, waterDuration[j], _waterEndTime);

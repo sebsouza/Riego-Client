@@ -170,19 +170,19 @@ void setWaterAutoInit()
     Serial.println("Set Water Auto Init Measure...");
     Serial.println("------------------------------------");
 
-    Serial.println("");
-    Serial.print("Measured Sensor Output Value = ");
-    Serial.print(measuredSoilSensorValue);
-    Serial.print(" / Estimated Sensor Output Value = ");
-    Serial.println(estimatedSoilSensorValue);
+    // Serial.println("");
+    // Serial.print("Measured Sensor Output Value = ");
+    // Serial.print(measuredSoilSensorValue);
+    // Serial.print(" / Estimated Sensor Output Value = ");
+    // Serial.println(estimatedSoilSensorValue);
 
-    TelnetPrint.print("Measured Sensor Output Value = ");
-    TelnetPrint.print(measuredSoilSensorValue);
-    TelnetPrint.print(" / Estimated Sensor Output Value = ");
-    TelnetPrint.println(estimatedSoilSensorValue);
+    // TelnetPrint.print("Measured Sensor Output Value = ");
+    // TelnetPrint.print(measuredSoilSensorValue);
+    // TelnetPrint.print(" / Estimated Sensor Output Value = ");
+    // TelnetPrint.println(estimatedSoilSensorValue);
 
     String content;
-    DynamicJsonDocument doc(256);
+    DynamicJsonDocument doc(1024);
     // if(error.sensorOutOfRange)
     // doc["fields"]["soilMoistInit"]["doubleValue"] = -1;
     // else
@@ -191,11 +191,11 @@ void setWaterAutoInit()
     else
         doc["fields"]["soilMoistInit"]["doubleValue"] = state.soilMoistInit;
         
-        for (int i = 0; i < MAX_ZONE_NUMBER; i++)
-        {
-            doc["fields"]["duration"]["mapValue"]["fields"]["zone" + (String)(i + 1)]["integerValue"] = state.waterDuration[i];
-        }
-        doc["fields"]["state"]["integerValue"] = state.waterState;
+    for (int i = 0; i < MAX_ZONE_NUMBER; i++)
+    {
+        doc["fields"]["duration"]["mapValue"]["fields"]["zone" + (String)(i + 1)]["integerValue"] = state.waterDuration[i];
+    }
+    doc["fields"]["state"]["integerValue"] = state.waterState;
     doc["fields"]["timestamp"]["integerValue"] = UnixTimestamp;
 
     serializeJson(doc, content);
