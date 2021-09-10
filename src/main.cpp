@@ -555,6 +555,10 @@ void waterAuto()
   {
     waterRequired = false;
     state.waterState = OFF;
+    if (databaseConnected)
+    {
+      setWaterAutoInit();
+    }
     Serial.println("Water Auto skipped");
   }
 }

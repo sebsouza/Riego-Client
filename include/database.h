@@ -190,12 +190,13 @@ void setWaterAutoInit()
         doc["fields"]["soilMoistInit"]["doubleValue"] = -4;
     else
         doc["fields"]["soilMoistInit"]["doubleValue"] = state.soilMoistInit;
-        
+
     for (int i = 0; i < MAX_ZONE_NUMBER; i++)
     {
         doc["fields"]["duration"]["mapValue"]["fields"]["zone" + (String)(i + 1)]["integerValue"] = state.waterDuration[i];
     }
     doc["fields"]["state"]["integerValue"] = state.waterState;
+    doc["fields"]["waterRequired"]["booleanValue"] = waterRequired;
     doc["fields"]["timestamp"]["integerValue"] = UnixTimestamp;
 
     serializeJson(doc, content);
